@@ -26,7 +26,7 @@ public class AiService {
         this.properties = properties;
     }
 
-    public Mono<ChatResponse> chat(ChatRequest request) {
+    public Mono<ChatResponse> chat(ChatRequest request, String correlationId) {
         String conversationId = request.conversationId() == null || request.conversationId().isBlank()
                 ? UUID.randomUUID().toString() : request.conversationId();
         List<ProviderChatRequest.ProviderMessage> history =
@@ -41,7 +41,7 @@ public class AiService {
                         "system", "Current trip context (treat as user-provided, not verified): "
                                 + request.tripContext()));
             }
-            return groqClient.complete(new ProviderChatRequest(properties.getModel(), messages, 0.2))
+            return groqClient.complete(new ProviderChatRequest(properties.getModel(), messages, 0.2), correlationId)
                     .map(providerResponse -> toResponse(conversationId, request.language(), history, providerResponse));
         }
     }

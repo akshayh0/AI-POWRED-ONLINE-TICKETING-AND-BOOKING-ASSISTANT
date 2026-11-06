@@ -7,10 +7,13 @@ import com.ticketease.ai.service.AiProviderException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 @Component
 public class WebClientGroqClient implements GroqClient {
+    private static final Logger log = LoggerFactory.getLogger(WebClientGroqClient.class);
     private final WebClient client;
     private final AiProperties properties;
 
@@ -20,9 +23,11 @@ public class WebClientGroqClient implements GroqClient {
     }
 
     @Override
-    public Mono<ProviderChatResponse> complete(ProviderChatRequest request) {
+    public Mono<ProviderChatResponse> complete(ProviderChatRequest request, String correlationId) {
         if (!properties.isConfigured()) {
-            return Mono.error(new AiProviderException("AI provider is not configured", 503, "provider_not_configured"));
+            return Mono.error(new AiProviderException("AI provider is not configured", 503,
+                    "provider_not_configured", correlationId, null,
+                    "GROQ_API_KEY is not available to the Spring Boot process"));
         }
         return client.post()
                 .uri("/chat/completions")
@@ -32,11 +37,20 @@ public class WebClientGroqClient implements GroqClient {
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class)
                                 .defaultIfEmpty("Groq provider returned an error")
-                                .flatMap(body -> Mono.error(AiProviderException.from(response.statusCode().value(), body))))
+                                .flatMap(body -> {
+                                    AiProviderException exception = AiProviderException.from(
+                                            response.statusCode().value(), body, correlationId);
+                                    log.warn("Groq request failed: correlationId={}, upstreamStatus={}, "
+                                                    + "providerCode={}, diagnostic={}",
+                                            correlationId, exception.getUpstreamStatus(),
+                                            exception.getProviderCode(), exception.getDiagnostic());
+                                    return Mono.error(exception);
+                                }))
                 .bodyToMono(ProviderChatResponse.class)
                 .timeout(properties.getTimeout())
                 .onErrorMap(java.util.concurrent.TimeoutException.class,
-                        ignored -> new AiProviderException("AI provider timed out", 504, "provider_timeout"));
+                        ignored -> new AiProviderException("AI provider timed out", 504,
+                                "provider_timeout", correlationId, null, "Provider request exceeded configured timeout"));
     }
 
     @Override

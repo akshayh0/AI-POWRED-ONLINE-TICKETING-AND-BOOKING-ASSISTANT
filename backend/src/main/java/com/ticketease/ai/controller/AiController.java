@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/ai")
@@ -38,7 +39,7 @@ public class AiController {
             return Mono.error(new AiProviderException(
                     "Too many AI requests. Please try again shortly.", 429, "request_rate_limited"));
         }
-        return aiService.chat(request).map(ResponseEntity::ok);
+        return aiService.chat(request, UUID.randomUUID().toString()).map(ResponseEntity::ok);
     }
 
     @GetMapping("/status")
