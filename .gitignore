@@ -23,6 +23,8 @@ yarn-error.log*
 # Environment files & Secrets
 .env
 .env*.local
+.env.*
+backend/.env
 .env.development.local
 .env.test.local
 .env.production.local
