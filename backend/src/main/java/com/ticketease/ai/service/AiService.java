@@ -10,6 +10,7 @@ import com.ticketease.ai.dto.AiIntent;
 import com.ticketease.ai.dto.ProviderChatRequest;
 import com.ticketease.ai.dto.ProviderChatResponse;
 import com.ticketease.ai.dto.StructuredTripInformation;
+import com.ticketease.ai.dto.TripType;
 import com.ticketease.ai.prompts.TicketEasePrompt;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ public class AiService {
                 conversations.computeIfAbsent(conversationId, ignored -> new ArrayList<>());
         boolean hasContext = !history.isEmpty();
         AiIntent intent = intentClassifier.classify(request.message(), hasContext);
+        TripType requestedTripType = intentClassifier.classifyTripType(request.message(), intent);
         synchronized (history) {
             history.add(new ProviderChatRequest.ProviderMessage("user", request.message()));
             if (intent == AiIntent.OUT_OF_SCOPE) {
@@ -52,6 +54,7 @@ public class AiService {
                         + "I can help you plan trips, discover destinations, book transport, find hotels, "
                         + "rent vehicles, explore restaurants and book tickets. What would you like to plan?";
                 return Mono.just(new ChatResponse(conversationId, scopeMessage, request.language(), intent,
+                        requestedTripType,
                         List.of("Plan a trip", "Find a hotel", "Explore destinations"), null));
             }
             if (intent == AiIntent.GREETING) {
@@ -61,6 +64,7 @@ public class AiService {
                         : "Hello! I’m TicketEase AI. I can help plan trips, find transport and stays, "
                         + "discover food and destinations, and explore events and tickets. What would you like to plan?";
                 return Mono.just(new ChatResponse(conversationId, greeting, request.language(), intent,
+                        requestedTripType,
                         List.of("Plan a trip", "Find transport", "Discover destinations"), null));
             }
             List<ProviderChatRequest.ProviderMessage> messages = new ArrayList<>();
@@ -84,7 +88,8 @@ public class AiService {
                 }
                 return groqClient.complete(providerRequest, correlationId);
             })
-                    .map(providerResponse -> toResponse(conversationId, request.language(), intent, history, providerResponse));
+                    .map(providerResponse -> toResponse(conversationId, request.language(), intent,
+                            requestedTripType, history, providerResponse));
         }
     }
 
@@ -97,7 +102,8 @@ public class AiService {
     }
 
     private ChatResponse toResponse(String id, String language,
-            AiIntent intent, List<ProviderChatRequest.ProviderMessage> history,
+            AiIntent intent, TripType requestedTripType,
+            List<ProviderChatRequest.ProviderMessage> history,
             ProviderChatResponse response) {
         if (response == null || response.choices() == null || response.choices().isEmpty()
                 || response.choices().get(0).message() == null
@@ -109,8 +115,9 @@ public class AiService {
         synchronized (history) {
             history.add(new ProviderChatRequest.ProviderMessage("assistant", parsed.message()));
         }
-        return new ChatResponse(id, parsed.message(), language, intent, parsed.suggestedActions(),
-                parsed.structuredTripInformation());
+        StructuredTripInformation trip = normalizeTrip(parsed.structuredTripInformation(), requestedTripType);
+        return new ChatResponse(id, parsed.message(), language, intent, requestedTripType,
+                parsed.suggestedActions(), trip);
     }
 
     public record Status(boolean configured, boolean reachable, boolean modelAvailable, String model) {}
@@ -140,16 +147,34 @@ public class AiService {
                     ? objectMapper.treeToValue(root.get("structuredTripInformation"),
                             StructuredTripInformation.class) : null;
             if (trip != null && trip.missingInformation() == null) {
-                trip = new StructuredTripInformation(trip.origin(), trip.destination(), trip.travelDate(),
+                trip = new StructuredTripInformation(trip.tripType(), trip.origin(), trip.destination(), trip.travelDate(),
                         trip.returnDate(), trip.passengerCount(), trip.budget(), trip.currency(),
                         trip.eventCategory(), trip.eventName(), trip.stadiumOrVenue(),
                         trip.transportPreference(), trip.accommodationPreference(), trip.foodPreference(),
+                        trip.eventRequested(), trip.itinerary(), trip.transportOptions(),
+                        trip.accommodationOptions(), trip.attractions(), trip.restaurants(),
+                        trip.budgetBreakdown(),
                         List.of(), trip.planningStatus());
             }
             return new ParsedAssistantResponse(message, actions, trip);
         } catch (Exception ignored) {
             return fallback(content);
         }
+    }
+
+    private StructuredTripInformation normalizeTrip(StructuredTripInformation trip, TripType requestedTripType) {
+        if (trip == null) return null;
+        boolean eventRequested = requestedTripType == TripType.EVENT_TRIP
+                || requestedTripType == TripType.CRICKET_MATCH_TRIP
+                || requestedTripType == TripType.CINEMA_TRIP
+                || requestedTripType == TripType.CONCERT_TRIP;
+        if (eventRequested) return trip;
+        return new StructuredTripInformation(requestedTripType, trip.origin(), trip.destination(),
+                trip.travelDate(), trip.returnDate(), trip.passengerCount(), trip.budget(), trip.currency(),
+                null, null, null, trip.transportPreference(), trip.accommodationPreference(),
+                trip.foodPreference(), false, trip.itinerary(), trip.transportOptions(),
+                trip.accommodationOptions(), trip.attractions(), trip.restaurants(),
+                trip.budgetBreakdown(), trip.missingInformation(), trip.planningStatus());
     }
 
     private ParsedAssistantResponse fallback(String content) {

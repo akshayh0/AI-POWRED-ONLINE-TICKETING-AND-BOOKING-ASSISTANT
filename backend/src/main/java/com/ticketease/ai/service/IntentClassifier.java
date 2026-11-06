@@ -1,6 +1,7 @@
 package com.ticketease.ai.service;
 
 import com.ticketease.ai.dto.AiIntent;
+import com.ticketease.ai.dto.TripType;
 import java.util.Locale;
 import org.springframework.stereotype.Component;
 
@@ -49,6 +50,23 @@ public class IntentClassifier {
             return AiIntent.TRIP_PLANNING;
         if (contains(text, "help", "assistance", "luggage", "visa")) return AiIntent.TRAVEL_ASSISTANCE;
         return hasConversationContext ? AiIntent.TRAVEL_FOLLOW_UP : AiIntent.OUT_OF_SCOPE;
+    }
+
+    public TripType classifyTripType(String message, AiIntent intent) {
+        String text = message.toLowerCase(Locale.ROOT);
+        if (contains(text, "rcb", "cricket", "match")) return TripType.CRICKET_MATCH_TRIP;
+        if (contains(text, "concert", "live music", "festival")) return TripType.CONCERT_TRIP;
+        if (contains(text, "cinema", "movie", "theatre")) return TripType.CINEMA_TRIP;
+        if (contains(text, "business trip", "work trip", "conference")) return TripType.BUSINESS_TRIP;
+        if (intent == AiIntent.VEHICLE_RENTAL) return TripType.RENTAL_ONLY;
+        if (intent == AiIntent.HOTEL_SEARCH || intent == AiIntent.ACCOMMODATION_BOOKING)
+            return TripType.HOTEL_ONLY;
+        if (intent == AiIntent.TRANSPORT_SEARCH || intent == AiIntent.BUS_BOOKING
+                || intent == AiIntent.TRAIN_BOOKING || intent == AiIntent.FLIGHT_SEARCH
+                || intent == AiIntent.CAB_BOOKING) return TripType.TRANSPORT_ONLY;
+        if (intent == AiIntent.DESTINATION_DISCOVERY || contains(text, "sightseeing", "tourist", "places to visit"))
+            return TripType.TOURISM_TRIP;
+        return TripType.GENERAL_TRIP;
     }
 
     private boolean isGreeting(String text) {

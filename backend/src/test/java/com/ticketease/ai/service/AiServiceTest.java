@@ -128,4 +128,27 @@ class AiServiceTest {
                 .verifyComplete();
         verify(client, never()).isModelAvailable();
     }
+
+    @Test
+    void removesUnrequestedEventDataFromGeneralTrip() {
+        GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
+        AiProperties properties = new AiProperties();
+        properties.setApiKey("test-key");
+        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(List.of(
+                new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
+                        """
+                        {"message":"General trip plan","suggestedActions":[],"structuredTripInformation":{"tripType":"CRICKET_MATCH_TRIP","origin":"Mysuru","destination":"Bengaluru","eventRequested":true,"eventCategory":"cricket","eventName":"RCB vs CSK","stadiumOrVenue":"M. Chinnaswamy Stadium","missingInformation":[],"planningStatus":"READY"}}"""))))));
+
+        AiService service = new AiService(client, properties, new ObjectMapper(), new IntentClassifier());
+        StepVerifier.create(service.chat(new ChatRequest(
+                "Plan a Mysuru to Bengaluru trip for four friends within ₹25,000.", null, "EN", null), "general-test"))
+                .assertNext(response -> {
+                    assertThat(response.tripType()).isEqualTo(com.ticketease.ai.dto.TripType.GENERAL_TRIP);
+                    assertThat(response.structuredTripInformation().eventRequested()).isFalse();
+                    assertThat(response.structuredTripInformation().eventName()).isNull();
+                    assertThat(response.structuredTripInformation().stadiumOrVenue()).isNull();
+                })
+                .verifyComplete();
+    }
 }
