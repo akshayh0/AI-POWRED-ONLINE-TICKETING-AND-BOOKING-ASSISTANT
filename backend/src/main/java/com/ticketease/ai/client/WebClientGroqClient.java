@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import reactor.core.publisher.Mono;
+import jakarta.annotation.PostConstruct;
 
 @Component
 public class WebClientGroqClient implements GroqClient {
@@ -21,6 +22,12 @@ public class WebClientGroqClient implements GroqClient {
     public WebClientGroqClient(WebClient groqWebClient, AiProperties properties) {
         this.client = groqWebClient;
         this.properties = properties;
+    }
+
+    @PostConstruct
+    void logSelectedModel() {
+        log.info("Groq AI configuration: baseUrl={}, model={}, apiKeyConfigured={}",
+                properties.getBaseUrl(), properties.getModel(), properties.isConfigured());
     }
 
     @Override
@@ -72,7 +79,7 @@ public class WebClientGroqClient implements GroqClient {
     }
 
     @Override
-    public Mono<Boolean> isModelAvailable() {
+    public Mono<Boolean> isModelAvailable(String correlationId) {
         if (!properties.isConfigured()) {
             return Mono.just(false);
         }
@@ -80,16 +87,27 @@ public class WebClientGroqClient implements GroqClient {
                 .uri("/models")
                 .headers(headers -> headers.setBearerAuth(properties.getApiKey()))
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, response ->
+                        response.bodyToMono(String.class)
+                                .defaultIfEmpty("Groq model availability request failed")
+                                .flatMap(body -> Mono.error(AiProviderException.from(
+                                        response.statusCode().value(), body, correlationId))))
                 .bodyToMono(JsonNode.class)
                 .map(body -> {
                     for (JsonNode model : body.path("data")) {
                         if (properties.getModel().equals(model.path("id").asText())) {
+                            log.info("Groq model availability confirmed: model={}", properties.getModel());
                             return true;
                         }
                     }
+                    log.warn("Configured Groq model is not present in provider model list: model={}",
+                            properties.getModel());
                     return false;
                 })
                 .timeout(properties.getTimeout())
-                .onErrorReturn(false);
+                .onErrorMap(java.util.concurrent.TimeoutException.class,
+                        ignored -> new AiProviderException("AI provider timed out", 504,
+                                "provider_timeout", correlationId, null,
+                                "Groq model availability request exceeded configured timeout"));
     }
 }

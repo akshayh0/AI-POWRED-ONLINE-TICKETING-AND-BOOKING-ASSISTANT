@@ -7,5 +7,5 @@ import reactor.core.publisher.Mono;
 public interface GroqClient {
     Mono<ProviderChatResponse> complete(ProviderChatRequest request, String correlationId);
     Mono<Boolean> isReachable();
-    Mono<Boolean> isModelAvailable();
+    Mono<Boolean> isModelAvailable(String correlationId);
 }

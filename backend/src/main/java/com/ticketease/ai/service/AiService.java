@@ -79,10 +79,15 @@ public class AiService {
                                 + request.tripContext()));
             }
             ProviderChatRequest providerRequest = new ProviderChatRequest(properties.getModel(), messages, 0.2);
-            return groqClient.isModelAvailable().flatMap(modelAvailable -> {
+            if (!properties.isConfigured()) {
+                return Mono.error(new AiProviderException("AI provider is not configured", 503,
+                        "provider_not_configured", correlationId, null,
+                        "GROQ_API_KEY is not available to the Spring Boot process"));
+            }
+            return groqClient.isModelAvailable(correlationId).flatMap(modelAvailable -> {
                 if (!modelAvailable) {
                     return Mono.error(new AiProviderException(
-                            "Configured AI model is unavailable at the provider", 503,
+                            "Configured AI model is unavailable at the provider: " + properties.getModel(), 503,
                             "provider_model_unavailable", correlationId, null,
                             "Configured model is not present in the provider model list"));
                 }
@@ -96,7 +101,7 @@ public class AiService {
     public Mono<Status> status() {
         return groqClient.isReachable()
                 .flatMap(reachable -> reachable
-                        ? groqClient.isModelAvailable().map(modelAvailable ->
+                        ? groqClient.isModelAvailable("status").map(modelAvailable ->
                                 new Status(properties.isConfigured(), true, modelAvailable, properties.getModel()))
                         : Mono.just(new Status(properties.isConfigured(), false, false, properties.getModel())));
     }

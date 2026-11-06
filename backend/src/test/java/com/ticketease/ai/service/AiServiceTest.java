@@ -22,7 +22,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(
                 List.of(new ProviderChatResponse.Choice(
                         new ProviderChatResponse.Message("assistant", "Hello from mocked Groq"))))));
@@ -42,7 +42,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         when(client.complete(any(), any())).thenReturn(
                 Mono.error(new AiProviderException("AI provider is not configured", 503, "provider_not_configured")));
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         AiService service = new AiService(client, new AiProperties(), new ObjectMapper(), new IntentClassifier());
 
         StepVerifier.create(service.chat(new ChatRequest("Plan a trip", null, "EN", null), "test-correlation-id"))
@@ -56,7 +56,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(List.of(
                 new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
                         """
@@ -79,7 +79,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(List.of(
                 new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
                         """
@@ -100,7 +100,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(List.of(
                 new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
                         "I need your travel date."))))));
@@ -126,7 +126,7 @@ class AiServiceTest {
                     assertThat(response.message()).contains("TicketEase AI");
                 })
                 .verifyComplete();
-        verify(client, never()).isModelAvailable();
+        verify(client, never()).isModelAvailable(any());
     }
 
     @Test
@@ -134,7 +134,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
-        when(client.isModelAvailable()).thenReturn(Mono.just(true));
+        when(client.isModelAvailable(any())).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(List.of(
                 new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
                         """

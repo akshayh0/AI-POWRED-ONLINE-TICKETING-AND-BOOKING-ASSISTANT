@@ -11,7 +11,7 @@ Requirements: Java 21 and Maven.
 
 ```powershell
 $env:GROQ_API_KEY = "replace-with-your-key"
-$env:GROQ_MODEL = "llama-3.3-70b-versatile"
+$env:GROQ_MODEL = "openai/gpt-oss-20b"
 mvn spring-boot:run
 ```
 
