@@ -19,6 +19,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         AiProperties properties = new AiProperties();
         properties.setApiKey("test-key");
+        when(client.isModelAvailable()).thenReturn(Mono.just(true));
         when(client.complete(any(), any())).thenReturn(Mono.just(new ProviderChatResponse(
                 List.of(new ProviderChatResponse.Choice(
                         new ProviderChatResponse.Message("assistant", "Hello from mocked Groq"))))));
@@ -38,6 +39,7 @@ class AiServiceTest {
         GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
         when(client.complete(any(), any())).thenReturn(
                 Mono.error(new AiProviderException("AI provider is not configured", 503, "provider_not_configured")));
+        when(client.isModelAvailable()).thenReturn(Mono.just(true));
         AiService service = new AiService(client, new AiProperties());
 
         StepVerifier.create(service.chat(new ChatRequest("Hello", null, "EN", null), "test-correlation-id"))

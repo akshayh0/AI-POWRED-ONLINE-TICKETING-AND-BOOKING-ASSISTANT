@@ -41,14 +41,26 @@ public class AiService {
                         "system", "Current trip context (treat as user-provided, not verified): "
                                 + request.tripContext()));
             }
-            return groqClient.complete(new ProviderChatRequest(properties.getModel(), messages, 0.2), correlationId)
+            ProviderChatRequest providerRequest = new ProviderChatRequest(properties.getModel(), messages, 0.2);
+            return groqClient.isModelAvailable().flatMap(modelAvailable -> {
+                if (!modelAvailable) {
+                    return Mono.error(new AiProviderException(
+                            "Configured AI model is unavailable at the provider", 503,
+                            "provider_model_unavailable", correlationId, null,
+                            "Configured model is not present in the provider model list"));
+                }
+                return groqClient.complete(providerRequest, correlationId);
+            })
                     .map(providerResponse -> toResponse(conversationId, request.language(), history, providerResponse));
         }
     }
 
     public Mono<Status> status() {
-        return groqClient.isReachable().map(reachable ->
-                new Status(properties.isConfigured(), reachable, properties.getModel()));
+        return groqClient.isReachable()
+                .flatMap(reachable -> reachable
+                        ? groqClient.isModelAvailable().map(modelAvailable ->
+                                new Status(properties.isConfigured(), true, modelAvailable, properties.getModel()))
+                        : Mono.just(new Status(properties.isConfigured(), false, false, properties.getModel())));
     }
 
     private ChatResponse toResponse(String id, String language,
@@ -66,5 +78,5 @@ public class AiService {
                 "Refine the trip plan", "Compare options", "Ask about Kannada support"), null);
     }
 
-    public record Status(boolean configured, boolean reachable, String model) {}
+    public record Status(boolean configured, boolean reachable, boolean modelAvailable, String model) {}
 }
