@@ -6,6 +6,7 @@ public record ChatResponse(
         String conversationId,
         String message,
         String language,
+        AiIntent intent,
         List<String> suggestedActions,
         StructuredTripInformation structuredTripInformation) {
 }

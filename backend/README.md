@@ -69,6 +69,12 @@ subsequent requests:
 }
 ```
 
+Responses also include an `intent` enum such as `TRIP_PLANNING`,
+`HOTEL_SEARCH`, `EVENT_SEARCH`, `BOOKING_CANCELLATION`, `GREETING`, or
+`OUT_OF_SCOPE`. Out-of-scope requests are handled locally and are not sent
+to Groq. Supported travel requests are sent to Groq with the classified intent
+and conversation history.
+
 The API returns `400` for invalid input, `429` for the local rate limit,
 `401` for an invalid Groq key, `429` for a provider rate limit, `503` when
 the provider is not configured, and `504` on provider timeout. Error bodies

@@ -6,6 +6,7 @@ import com.ticketease.ai.client.GroqClient;
 import com.ticketease.ai.config.AiProperties;
 import com.ticketease.ai.dto.ChatRequest;
 import com.ticketease.ai.dto.ChatResponse;
+import com.ticketease.ai.dto.AiIntent;
 import com.ticketease.ai.dto.ProviderChatRequest;
 import com.ticketease.ai.dto.ProviderChatResponse;
 import com.ticketease.ai.dto.StructuredTripInformation;
@@ -22,13 +23,16 @@ public class AiService {
     private final GroqClient groqClient;
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final IntentClassifier intentClassifier;
     private final ConcurrentHashMap<String, List<ProviderChatRequest.ProviderMessage>> conversations =
             new ConcurrentHashMap<>();
 
-    public AiService(GroqClient groqClient, AiProperties properties, ObjectMapper objectMapper) {
+    public AiService(GroqClient groqClient, AiProperties properties, ObjectMapper objectMapper,
+            IntentClassifier intentClassifier) {
         this.groqClient = groqClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.intentClassifier = intentClassifier;
     }
 
     public Mono<ChatResponse> chat(ChatRequest request, String correlationId) {
@@ -36,10 +40,34 @@ public class AiService {
                 ? UUID.randomUUID().toString() : request.conversationId();
         List<ProviderChatRequest.ProviderMessage> history =
                 conversations.computeIfAbsent(conversationId, ignored -> new ArrayList<>());
+        boolean hasContext = !history.isEmpty();
+        AiIntent intent = intentClassifier.classify(request.message(), hasContext);
         synchronized (history) {
             history.add(new ProviderChatRequest.ProviderMessage("user", request.message()));
+            if (intent == AiIntent.OUT_OF_SCOPE) {
+                String scopeMessage = request.language().equalsIgnoreCase("KN")
+                        ? "ನಾನು TicketEase AI, ನಿಮ್ಮ ಪ್ರಯಾಣ ಮತ್ತು ಬುಕಿಂಗ್ ಸಹಾಯಕ. ಪ್ರವಾಸ, ಸಾರಿಗೆ, ಹೋಟೆಲ್, "
+                        + "ರೆಸ್ಟೋರೆಂಟ್, ವಾಹನ ಬಾಡಿಗೆ, ಕಾರ್ಯಕ್ರಮಗಳು ಮತ್ತು ಟಿಕೆಟ್‌ಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು. ಏನು ಯೋಜಿಸೋಣ?"
+                        : "I'm TicketEase AI, your travel and booking assistant. "
+                        + "I can help you plan trips, discover destinations, book transport, find hotels, "
+                        + "rent vehicles, explore restaurants and book tickets. What would you like to plan?";
+                return Mono.just(new ChatResponse(conversationId, scopeMessage, request.language(), intent,
+                        List.of("Plan a trip", "Find a hotel", "Explore destinations"), null));
+            }
+            if (intent == AiIntent.GREETING) {
+                String greeting = request.language().equalsIgnoreCase("KN")
+                        ? "ನಮಸ್ಕಾರ! ನಾನು TicketEase AI. ಪ್ರಯಾಣ, ಸಾರಿಗೆ, ವಸತಿ, ಆಹಾರ, ಪ್ರವಾಸಿ ಸ್ಥಳಗಳು ಮತ್ತು "
+                        + "ಕಾರ್ಯಕ್ರಮಗಳ ಟಿಕೆಟ್‌ಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು. ಏನು ಯೋಜಿಸೋಣ?"
+                        : "Hello! I’m TicketEase AI. I can help plan trips, find transport and stays, "
+                        + "discover food and destinations, and explore events and tickets. What would you like to plan?";
+                return Mono.just(new ChatResponse(conversationId, greeting, request.language(), intent,
+                        List.of("Plan a trip", "Find transport", "Discover destinations"), null));
+            }
             List<ProviderChatRequest.ProviderMessage> messages = new ArrayList<>();
             messages.add(new ProviderChatRequest.ProviderMessage("system", TicketEasePrompt.systemInstructions()));
+            messages.add(new ProviderChatRequest.ProviderMessage("system",
+                    "Classified user intent: " + intent.name()
+                            + ". Answer the complete request within TicketEase's supported travel domain."));
             messages.addAll(history);
             if (request.tripContext() != null && !request.tripContext().isNull()) {
                 messages.add(new ProviderChatRequest.ProviderMessage(
@@ -56,7 +84,7 @@ public class AiService {
                 }
                 return groqClient.complete(providerRequest, correlationId);
             })
-                    .map(providerResponse -> toResponse(conversationId, request.language(), history, providerResponse));
+                    .map(providerResponse -> toResponse(conversationId, request.language(), intent, history, providerResponse));
         }
     }
 
@@ -69,7 +97,8 @@ public class AiService {
     }
 
     private ChatResponse toResponse(String id, String language,
-            List<ProviderChatRequest.ProviderMessage> history, ProviderChatResponse response) {
+            AiIntent intent, List<ProviderChatRequest.ProviderMessage> history,
+            ProviderChatResponse response) {
         if (response == null || response.choices() == null || response.choices().isEmpty()
                 || response.choices().get(0).message() == null
                 || response.choices().get(0).message().content() == null) {
@@ -80,7 +109,7 @@ public class AiService {
         synchronized (history) {
             history.add(new ProviderChatRequest.ProviderMessage("assistant", parsed.message()));
         }
-        return new ChatResponse(id, parsed.message(), language, parsed.suggestedActions(),
+        return new ChatResponse(id, parsed.message(), language, intent, parsed.suggestedActions(),
                 parsed.structuredTripInformation());
     }
 
@@ -110,6 +139,13 @@ public class AiService {
                     && !root.get("structuredTripInformation").isNull()
                     ? objectMapper.treeToValue(root.get("structuredTripInformation"),
                             StructuredTripInformation.class) : null;
+            if (trip != null && trip.missingInformation() == null) {
+                trip = new StructuredTripInformation(trip.origin(), trip.destination(), trip.travelDate(),
+                        trip.returnDate(), trip.passengerCount(), trip.budget(), trip.currency(),
+                        trip.eventCategory(), trip.eventName(), trip.stadiumOrVenue(),
+                        trip.transportPreference(), trip.accommodationPreference(), trip.foodPreference(),
+                        List.of(), trip.planningStatus());
+            }
             return new ParsedAssistantResponse(message, actions, trip);
         } catch (Exception ignored) {
             return fallback(content);

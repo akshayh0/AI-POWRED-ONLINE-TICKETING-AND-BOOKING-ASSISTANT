@@ -3,6 +3,8 @@ package com.ticketease.ai.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 import com.ticketease.ai.client.GroqClient;
 import com.ticketease.ai.config.AiProperties;
@@ -25,8 +27,8 @@ class AiServiceTest {
                 List.of(new ProviderChatResponse.Choice(
                         new ProviderChatResponse.Message("assistant", "Hello from mocked Groq"))))));
 
-        AiService service = new AiService(client, properties, new ObjectMapper());
-        StepVerifier.create(service.chat(new ChatRequest("Hello", null, "EN", null), "test-correlation-id"))
+        AiService service = new AiService(client, properties, new ObjectMapper(), new IntentClassifier());
+        StepVerifier.create(service.chat(new ChatRequest("Plan a trip", null, "EN", null), "test-correlation-id"))
                 .assertNext(response -> {
                     assertThat(response.conversationId()).isNotBlank();
                     assertThat(response.message()).isEqualTo("Hello from mocked Groq");
@@ -41,9 +43,9 @@ class AiServiceTest {
         when(client.complete(any(), any())).thenReturn(
                 Mono.error(new AiProviderException("AI provider is not configured", 503, "provider_not_configured")));
         when(client.isModelAvailable()).thenReturn(Mono.just(true));
-        AiService service = new AiService(client, new AiProperties(), new ObjectMapper());
+        AiService service = new AiService(client, new AiProperties(), new ObjectMapper(), new IntentClassifier());
 
-        StepVerifier.create(service.chat(new ChatRequest("Hello", null, "EN", null), "test-correlation-id"))
+        StepVerifier.create(service.chat(new ChatRequest("Plan a trip", null, "EN", null), "test-correlation-id"))
                 .expectErrorMatches(error -> error instanceof AiProviderException
                         && ((AiProviderException) error).getStatus() == 503)
                 .verify();
@@ -60,7 +62,7 @@ class AiServiceTest {
                         """
                         {"message":"ದಯವಿಟ್ಟು ಪ್ರಯಾಣದ ದಿನಾಂಕವನ್ನು ತಿಳಿಸಿ.","suggestedActions":["ದಿನಾಂಕ ಸೇರಿಸಿ"],"structuredTripInformation":{"origin":"ಮೈಸೂರು","destination":"ಬೆಂಗಳೂರು","travelDate":null,"returnDate":null,"passengerCount":4,"budget":25000,"currency":"INR","eventCategory":"ಕ್ರಿಕೆಟ್","eventName":"RCB match","stadiumOrVenue":null,"transportPreference":"ರೈಲು","accommodationPreference":null,"foodPreference":null,"missingInformation":["travelDate","stadiumOrVenue"],"planningStatus":"INCOMPLETE"}}"""))))));
 
-        AiService service = new AiService(client, properties, new ObjectMapper());
+        AiService service = new AiService(client, properties, new ObjectMapper(), new IntentClassifier());
         StepVerifier.create(service.chat(new ChatRequest("ಮೈಸೂರಿನಿಂದ ಬೆಂಗಳೂರಿಗೆ ನಾಲ್ಕು ಜನ", null, "KN", null), "kn-test"))
                 .assertNext(response -> {
                     assertThat(response.message()).contains("ದಯವಿಟ್ಟು");
@@ -83,7 +85,7 @@ class AiServiceTest {
                         """
                         {"message":"Your trip draft is ready.","suggestedActions":["Review draft"],"structuredTripInformation":{"origin":"Mysuru","destination":"Bengaluru","travelDate":"2026-12-12","returnDate":"2026-12-13","passengerCount":4,"budget":25000,"currency":"INR","eventCategory":"cricket","eventName":"RCB match","stadiumOrVenue":"M. Chinnaswamy Stadium","transportPreference":"train","accommodationPreference":"hotel","foodPreference":"local food","missingInformation":[],"planningStatus":"READY"}}"""))))));
 
-        AiService service = new AiService(client, properties, new ObjectMapper());
+        AiService service = new AiService(client, properties, new ObjectMapper(), new IntentClassifier());
         StepVerifier.create(service.chat(new ChatRequest("Plan the complete trip", null, "EN", null), "complete-test"))
                 .assertNext(response -> {
                     assertThat(response.structuredTripInformation().planningStatus()).isEqualTo("READY");
@@ -103,12 +105,27 @@ class AiServiceTest {
                 new ProviderChatResponse.Choice(new ProviderChatResponse.Message("assistant",
                         "I need your travel date."))))));
 
-        AiService service = new AiService(client, properties, new ObjectMapper());
+        AiService service = new AiService(client, properties, new ObjectMapper(), new IntentClassifier());
         StepVerifier.create(service.chat(new ChatRequest("Plan a trip", null, "EN", null), "malformed-test"))
                 .assertNext(response -> {
                     assertThat(response.message()).isEqualTo("I need your travel date.");
                     assertThat(response.structuredTripInformation()).isNull();
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    void handlesOutOfScopeLocallyWithoutCallingGroq() {
+        GroqClient client = org.mockito.Mockito.mock(GroqClient.class);
+        AiService service = new AiService(client, new AiProperties(), new ObjectMapper(), new IntentClassifier());
+
+        StepVerifier.create(service.chat(new ChatRequest("Explain Python programming", null, "EN", null), "scope-test"))
+                .assertNext(response -> {
+                    assertThat(response.intent()).isEqualTo(com.ticketease.ai.dto.AiIntent.OUT_OF_SCOPE);
+                    assertThat(response.structuredTripInformation()).isNull();
+                    assertThat(response.message()).contains("TicketEase AI");
+                })
+                .verifyComplete();
+        verify(client, never()).isModelAvailable();
     }
 }
