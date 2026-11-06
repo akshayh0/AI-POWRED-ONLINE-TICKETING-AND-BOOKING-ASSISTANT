@@ -30,7 +30,7 @@ public class AiController {
         this.rateLimitService = rateLimitService;
     }
 
-    @PostMapping("/chat")
+    @PostMapping(value = "/chat", produces = "application/json;charset=UTF-8")
     public Mono<ResponseEntity<ChatResponse>> chat(
             @Valid @RequestBody ChatRequest request, ServerHttpRequest httpRequest) {
         String address = httpRequest.getRemoteAddress() == null
@@ -42,7 +42,7 @@ public class AiController {
         return aiService.chat(request, UUID.randomUUID().toString()).map(ResponseEntity::ok);
     }
 
-    @GetMapping("/status")
+    @GetMapping(value = "/status", produces = "application/json;charset=UTF-8")
     public Mono<AiService.Status> status() {
         return aiService.status();
     }

@@ -1,11 +1,14 @@
 package com.ticketease.ai.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticketease.ai.client.GroqClient;
 import com.ticketease.ai.config.AiProperties;
 import com.ticketease.ai.dto.ChatRequest;
 import com.ticketease.ai.dto.ChatResponse;
 import com.ticketease.ai.dto.ProviderChatRequest;
 import com.ticketease.ai.dto.ProviderChatResponse;
+import com.ticketease.ai.dto.StructuredTripInformation;
 import com.ticketease.ai.prompts.TicketEasePrompt;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,12 +21,14 @@ import reactor.core.publisher.Mono;
 public class AiService {
     private final GroqClient groqClient;
     private final AiProperties properties;
+    private final ObjectMapper objectMapper;
     private final ConcurrentHashMap<String, List<ProviderChatRequest.ProviderMessage>> conversations =
             new ConcurrentHashMap<>();
 
-    public AiService(GroqClient groqClient, AiProperties properties) {
+    public AiService(GroqClient groqClient, AiProperties properties, ObjectMapper objectMapper) {
         this.groqClient = groqClient;
         this.properties = properties;
+        this.objectMapper = objectMapper;
     }
 
     public Mono<ChatResponse> chat(ChatRequest request, String correlationId) {
@@ -71,12 +76,52 @@ public class AiService {
             throw new AiProviderException("AI provider returned no message", 502, "provider_empty_response");
         }
         String content = response.choices().get(0).message().content();
+        ParsedAssistantResponse parsed = parseAssistantResponse(content);
         synchronized (history) {
-            history.add(new ProviderChatRequest.ProviderMessage("assistant", content));
+            history.add(new ProviderChatRequest.ProviderMessage("assistant", parsed.message()));
         }
-        return new ChatResponse(id, content, language, List.of(
-                "Refine the trip plan", "Compare options", "Ask about Kannada support"), null);
+        return new ChatResponse(id, parsed.message(), language, parsed.suggestedActions(),
+                parsed.structuredTripInformation());
     }
 
     public record Status(boolean configured, boolean reachable, boolean modelAvailable, String model) {}
+
+    private ParsedAssistantResponse parseAssistantResponse(String content) {
+        try {
+            String json = content.trim();
+            int start = json.indexOf('{');
+            int end = json.lastIndexOf('}');
+            if (start < 0 || end <= start) {
+                return fallback(content);
+            }
+            JsonNode root = objectMapper.readTree(json.substring(start, end + 1));
+            String message = root.path("message").isTextual()
+                    ? root.path("message").asText() : content;
+            List<String> actions = new ArrayList<>();
+            JsonNode actionNode = root.path("suggestedActions");
+            if (actionNode.isArray()) {
+                actionNode.forEach(action -> {
+                    if (action.isTextual()) {
+                        actions.add(action.asText());
+                    }
+                });
+            }
+            StructuredTripInformation trip = root.has("structuredTripInformation")
+                    && !root.get("structuredTripInformation").isNull()
+                    ? objectMapper.treeToValue(root.get("structuredTripInformation"),
+                            StructuredTripInformation.class) : null;
+            return new ParsedAssistantResponse(message, actions, trip);
+        } catch (Exception ignored) {
+            return fallback(content);
+        }
+    }
+
+    private ParsedAssistantResponse fallback(String content) {
+        return new ParsedAssistantResponse(content, List.of(
+                "Refine the trip plan", "Compare options", "Ask about Kannada support"), null);
+    }
+
+    private record ParsedAssistantResponse(
+            String message, List<String> suggestedActions,
+            StructuredTripInformation structuredTripInformation) {}
 }

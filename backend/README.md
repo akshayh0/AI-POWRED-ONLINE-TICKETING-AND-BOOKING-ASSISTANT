@@ -20,7 +20,7 @@ Optional variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible provider base URL |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Provider model name |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | Provider model name |
 | `GROQ_TIMEOUT` | `30s` | Provider request timeout |
 | `AI_REQUESTS_PER_MINUTE` | `20` | Per-client chat request limit |
 

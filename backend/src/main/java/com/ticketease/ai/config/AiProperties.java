@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AiProperties {
     private String baseUrl = "https://api.groq.com/openai/v1";
     private String apiKey = "";
-    private String model = "llama-3.3-70b-versatile";
+    private String model = "openai/gpt-oss-20b";
     private Duration timeout = Duration.ofSeconds(30);
     private int requestsPerMinute = 20;
 
