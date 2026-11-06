@@ -6,7 +6,6 @@ import {
   Zap,
   Hotel,
   ShieldCheck,
-  CheckCircle,
   MoreVertical,
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -16,6 +15,7 @@ import { RouteStepTimeline } from './RouteStepTimeline';
 import { PackageComparison } from './PackageComparison';
 import { TatkalRadarBadge } from './TatkalRadarBadge';
 import { ChatInputBar } from './ChatInputBar';
+import { sendAiMessage } from '@/lib/aiApi';
 
 interface ChatMessage {
   id: string;
@@ -46,8 +46,8 @@ export function ChatStream({
   onBookEverything,
 }: ChatStreamProps) {
   const { language, setLanguage } = useLanguage();
-  const [isBooked, setIsBooked] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [conversationId, setConversationId] = useState<string>();
 
   const defaultUserQuery =
     initialQuery ||
@@ -65,19 +65,26 @@ export function ChatStream({
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const initialRequestSent = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    if (!defaultUserQuery || initialRequestSent.current) return;
+    initialRequestSent.current = true;
+    void requestAiMessage(defaultUserQuery);
+  }, [defaultUserQuery]);
+
   const handleBookTrigger = () => {
-    const amount = selectedTier === 'comfort' ? 32600 : 20700;
-    setIsBooked(true);
-    if (onBookEverything) onBookEverything(amount);
-    setTimeout(() => setIsBooked(false), 3500);
+    void requestAiMessage(
+      `I want to review the ${selectedTier} trip package before booking. Tell me what is still unverified.`,
+    );
+    onBookEverything(selectedTier === 'comfort' ? 32600 : 20700);
   };
 
-  const handleSendMessage = (userText: string) => {
+  const requestAiMessage = async (userText: string) => {
     const newMsgId = `usr-${Date.now()}`;
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -93,28 +100,15 @@ export function ChatStream({
       },
     ]);
 
-    // Simulate realistic AI Corridor response
     setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      const lower = userText.toLowerCase();
-      let reply = `Understood for 4 travellers. Checked live KSRTC Airavat & Shatabdi timetables: Shatabdi 12008 leaves SBC Sunday 06:00 AM (₹670/seat). Updated in your trip draft!`;
-
-      if (lower.includes('hotel') || lower.includes('stay') || lower.includes('homestay')) {
-        reply = `Found alternate stay: Indiranagar Boutique Homestay with 2 deluxe rooms is locked at ₹6,400 total. Metro Purple Line station is an 8-minute walk.`;
-      } else if (lower.includes('shatabdi') || lower.includes('train')) {
-        reply = `Train 12008 Shatabdi Express has 48 CC seats available on Sunday morning departure from KSR Bengaluru (06:00 AM → 08:00 AM MYS). Direct booking locked in draft.`;
-      } else if (lower.includes('split') || lower.includes('upi') || lower.includes('pay')) {
-        const splitAmount = selectedTier === 'comfort' ? 8150 : 5175;
-        reply = `Payment split calculated: ₹${splitAmount} each for 4 travellers. Sent UPI demo payment links to group members.`;
-      } else if (lower.includes('comfort')) {
-        onPlanSelected('comfort');
-        reply = `Switched to Comfort Tier (₹32,600). Upgraded to East Stand Block D and MG Road 4-Star stay.`;
-      } else if (lower.includes('saver')) {
-        onPlanSelected('saver');
-        reply = `Switched to Saver Tier (₹20,700). Preserved ₹4,300 savings under your ₹25,000 budget cap.`;
-      }
-
+    try {
+      const response = await sendAiMessage({
+        message: userText,
+        conversationId,
+        language,
+        tripContext: { groupType, budgetCap, selectedTier },
+      });
+      setConversationId(response.conversationId);
       setMessages((prev) => [
         ...prev,
         {
@@ -122,10 +116,23 @@ export function ChatStream({
           sender: 'assistant',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           senderName: 'TicketEase AI Engine',
-          text: reply,
+          text: response.message,
         },
       ]);
-    }, 1200);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `ai-error-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          senderName: 'TicketEase AI Engine',
+          text: error instanceof Error ? error.message : 'The AI service is unavailable. Please try again.',
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   return (
@@ -285,21 +292,15 @@ export function ChatStream({
               onClick={handleBookTrigger}
               className="px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-['Space_Grotesk'] text-xs font-bold rounded transition-all shadow-md shadow-[#8B5CF6]/20 flex items-center gap-2"
             >
-              {isBooked ? (
-                <CheckCircle className="w-4 h-4 text-white" />
-              ) : (
-                <ShieldCheck className="w-4 h-4 text-white" />
-              )}
+              <ShieldCheck className="w-4 h-4 text-white" />
               <span>
-                {isBooked
-                  ? 'Locked in Demo Bucket!'
-                  : `Book everything ${selectedTier === 'comfort' ? '₹32,600' : '₹20,700'} (Demo)`}
+                Review package {selectedTier === 'comfort' ? '₹32,600' : '₹20,700'}
               </span>
             </button>
 
             <button
               type="button"
-              onClick={() => handleSendMessage('Swap the hotel to a stay closer to Cubbon Park')}
+              onClick={() => void requestAiMessage('Swap the hotel to a stay closer to Cubbon Park')}
               className="px-4 py-2.5 bg-[#1C1F2D] hover:bg-[#262938] text-[#F8FAFC] font-['Space_Grotesk'] text-xs font-bold rounded transition-colors flex items-center gap-2 border border-white/10"
             >
               <Hotel className="w-4 h-4 text-[#9CA8BD]" />
@@ -308,7 +309,7 @@ export function ChatStream({
 
             <button
               type="button"
-              onClick={() => handleSendMessage('Calculate UPI split between 4 travellers')}
+              onClick={() => void requestAiMessage('Calculate UPI split between 4 travellers')}
               className="px-4 py-2.5 bg-[#1C1F2D] hover:bg-[#262938] text-[#F8FAFC] font-['Space_Grotesk'] text-xs font-bold rounded transition-colors flex items-center gap-2 border border-white/10"
             >
               <Sparkles className="w-4 h-4 text-[#42D9FF]" />
@@ -335,7 +336,7 @@ export function ChatStream({
       </div>
 
       {/* ================= STICKY BOTTOM INPUT BAR ================= */}
-      <ChatInputBar onSendMessage={handleSendMessage} disabled={isTyping} />
+      <ChatInputBar onSendMessage={(text) => void requestAiMessage(text)} disabled={isTyping} />
     </section>
   );
 }
